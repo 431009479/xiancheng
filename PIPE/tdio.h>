@@ -1,0 +1,415 @@
+MSGOP(2)                   Linux Programmer's Manual                  MSGOP(2)
+
+[1mNAME[0m
+       msgrcv, msgsnd - System V message queue operations
+
+[1mSYNOPSIS[0m
+       [1m#include <sys/types.h>[0m
+       [1m#include <sys/ipc.h>[0m
+       [1m#include <sys/msg.h>[0m
+
+       [1mint msgsnd(int [4m[22mmsqid[24m[1m, const void *[4m[22mmsgp[24m[1m, size_t [4m[22mmsgsz[24m[1m, int [4m[22mmsgflg[24m[1m);[0m
+
+       [1mssize_t msgrcv(int [4m[22mmsqid[24m[1m, void *[4m[22mmsgp[24m[1m, size_t [4m[22mmsgsz[24m[1m, long [4m[22mmsgtyp[24m[1m,[0m
+                      [1mint [4m[22mmsgflg[24m[1m);[0m
+
+[1mDESCRIPTION[0m
+       The  [1mmsgsnd[22m() and [1mmsgrcv[22m() system calls are used, respectively, to send
+       messages to, and receive messages from, a System V message queue.   The
+       calling  process  must  have  write  permission on the message queue in
+       order to send a message, and read permission to receive a message.
+
+       The [4mmsgp[24m argument is a pointer to a  caller-defined  structure  of  the
+       following general form:
+
+           struct msgbuf {
+               long mtype;       /* message type, must be > 0 */
+               char mtext[1];    /* message data */
+           };
+
+       The  [4mmtext[24m  field is an array (or other structure) whose size is speci‐
+       fied by [4mmsgsz[24m, a nonnegative integer value.  Messages  of  zero  length
+       (i.e.,  no  [4mmtext[24m  field)  are  permitted.  The [4mmtype[24m field must have a
+       strictly positive integer value.  This value can be used by the receiv‐
+       ing  process  for  message  selection  (see the description of [1mmsgrcv[22m()
+       below).
+
+   [1mmsgsnd()[0m
+       The [1mmsgsnd[22m() system call appends a copy of the message  pointed  to  by
+       [4mmsgp[24m to the message queue whose identifier is specified by [4mmsqid[24m.
+
+       If  sufficient space is available in the queue, [1mmsgsnd[22m() succeeds imme‐
+       diately.  The queue capacity is governed by the [4mmsg_qbytes[24m field in the
+       associated data structure for the message queue.  During queue creation
+       this field is initialized to [1mMSGMNB [22mbytes, but this limit can be  modi‐
+       fied  using  [1mmsgctl[22m(2).   A  message  queue is considered to be full if
+       either of the following conditions is true:
+
+       * Adding a new message to the queue would cause  the  total  number  of
+         bytes in the queue to exceed the queue's maximum size (the [4mmsg_qbytes[0m
+         field).
+
+       * Adding another message to the queue would cause the total  number  of
+         messages  in  the  queue  to  exceed  the  queue's  maximum size (the
+         [4mmsg_qbytes[24m field).  This check is necessary to prevent  an  unlimited
+         number  of  zero-length messages being placed on the queue.  Although
+         such messages contain no data,  they  nevertheless  consume  (locked)
+         kernel memory.
+
+       If  insufficient  space  is  available  in  the queue, then the default
+       behavior of [1mmsgsnd[22m() is to block until  space  becomes  available.   If
+       [1mIPC_NOWAIT [22mis specified in [4mmsgflg[24m, then the call instead fails with the
+       error [1mEAGAIN[22m.
+
+       A blocked [1mmsgsnd[22m() call may also fail if:
+
+       * the queue is removed, in which case the system call fails with  [4merrno[0m
+         set to [1mEIDRM[22m; or
+
+       * a  signal  is  caught, in which case the system call fails with [4merrno[0m
+         set  to  [1mEINTR[22m;[1msee  signal[22m(7).   ([1mmsgsnd[22m()  is  never   automatically
+         restarted  after being interrupted by a signal handler, regardless of
+         the setting of the [1mSA_RESTART [22mflag when establishing  a  signal  han‐
+         dler.)
+
+       Upon  successful completion the message queue data structure is updated
+       as follows:
+
+              [4mmsg_lspid[24m is set to the process ID of the calling process.
+
+              [4mmsg_qnum[24m is incremented by 1.
+
+              [4mmsg_stime[24m is set to the current time.
+
+   [1mmsgrcv()[0m
+       The [1mmsgrcv[22m() system call removes a message from the queue specified  by
+       [4mmsqid[24m and places it in the buffer pointed to by [4mmsgp[24m.
+
+       The  argument  [4mmsgsz[24m specifies the maximum size in bytes for the member
+       [4mmtext[24m of the structure pointed to by the [4mmsgp[24m argument.  If the message
+       text  has  length  greater  than  [4mmsgsz[24m,  then  the behavior depends on
+       whether [1mMSG_NOERROR [22mis specified in [4mmsgflg[24m.  If [1mMSG_NOERROR  [22mis  speci‐
+       fied,  then  the message text will be truncated (and the truncated part
+       will be lost); if [1mMSG_NOERROR [22mis not specified, then the message  isn't
+       removed  from  the  queue  and  the system call fails returning -1 with
+       [4merrno[24m set to [1mE2BIG[22m.
+
+       Unless [1mMSG_COPY [22mis specified in [4mmsgflg[24m (see below), the [4mmsgtyp[24m argument
+       specifies the type of message requested, as follows:
+
+       * If [4mmsgtyp[24m is 0, then the first message in the queue is read.
+
+       * If  [4mmsgtyp[24m  is greater than 0, then the first message in the queue of
+         type [4mmsgtyp[24m is read, unless [1mMSG_EXCEPT [22mwas specified  in  [4mmsgflg[24m,  in
+         which case the first message in the queue of type not equal to [4mmsgtyp[0m
+         will be read.
+
+       * If [4mmsgtyp[24m is less than 0, then the first message in  the  queue  with
+         the  lowest  type  less than or equal to the absolute value of [4mmsgtyp[0m
+         will be read.
+
+       The [4mmsgflg[24m argument is a bit mask constructed by ORing together zero or
+       more of the following flags:
+
+       [1mIPC_NOWAIT[0m
+              Return immediately if no message of the requested type is in the
+              queue.  The system call fails with [4merrno[24m set to [1mENOMSG[22m.
+
+       [1mMSG_COPY [22m(since Linux 3.8)
+              Nondestructively fetch a copy of  the  message  at  the  ordinal
+              position  in the queue specified by [4mmsgtyp[24m (messages are consid‐
+              ered to be numbered starting at 0).
+
+              This flag must be specified in conjunction with [1mIPC_NOWAIT[22m, with
+              the  result  that, if there is no message available at the given
+              position, the call fails  immediately  with  the  error  [1mENOMSG[22m.
+              Because  they  alter  the  meaning of [4mmsgtyp[24m in orthogonal ways,
+              [1mMSG_COPY [22mand [1mMSG_EXCEPT [22mmay not both be specified in [4mmsgflg[24m.
+
+              The [1mMSG_COPY [22mflag was added for the implementation of the kernel
+              checkpoint-restore  facility and is available only if the kernel
+              was built with the [1mCONFIG_CHECKPOINT_RESTORE [22moption.
+
+       [1mMSG_EXCEPT[0m
+              Used with [4mmsgtyp[24m greater than 0 to read the first message in the
+              queue with message type that differs from [4mmsgtyp[24m.
+
+       [1mMSG_NOERROR[0m
+              To truncate the message text if longer than [4mmsgsz[24m bytes.
+
+       If  no  message of the requested type is available and [1mIPC_NOWAIT [22misn't
+       specified in [4mmsgflg[24m, the calling process is blocked until  one  of  the
+       following conditions occurs:
+
+       * A message of the desired type is placed in the queue.
+
+       * The message queue is removed from the system.  In this case, the sys‐
+         tem call fails with [4merrno[24m set to [1mEIDRM[22m.
+
+       * The calling process catches a signal.  In this case, the system  call
+         fails  with  [4merrno[24m  set  to  [1mEINTR[22m.  ([1mmsgrcv[22m() is never automatically
+         restarted after being interrupted by a signal handler, regardless  of
+         the  setting  of  the [1mSA_RESTART [22mflag when establishing a signal han‐
+         dler.)
+
+       Upon successful completion the message queue data structure is  updated
+       as follows:
+
+              [4mmsg_lrpid[24m is set to the process ID of the calling process.
+
+              [4mmsg_qnum[24m is decremented by 1.
+
+              [4mmsg_rtime[24m is set to the current time.
+
+[1mRETURN VALUE[0m
+       On  failure  both  functions return -1 with [4merrno[24m indicating the error,
+       otherwise [1mmsgsnd[22m() returns 0 and [1mmsgrcv[22m() returns the number  of  bytes
+       actually copied into the [4mmtext[24m array.
+
+[1mERRORS[0m
+       When  [1mmsgsnd[22m() fails, [4merrno[24m will be set to one among the following val‐
+       ues:
+
+       [1mEACCES [22mThe calling process does not have write permission on  the  mes‐
+              sage queue, and does not have the [1mCAP_IPC_OWNER [22mcapability.
+
+       [1mEAGAIN [22mThe  message  can't  be sent due to the [4mmsg_qbytes[24m limit for the
+              queue and [1mIPC_NOWAIT [22mwas specified in [4mmsgflg[24m.
+
+       [1mEFAULT [22mThe address pointed to by [4mmsgp[24m isn't accessible.
+
+       [1mEIDRM  [22mThe message queue was removed.
+
+       [1mEINTR  [22mSleeping on a full message queue condition, the process caught a
+              signal.
+
+       [1mEINVAL [22mInvalid  [4mmsqid[24m  value,  or  nonpositive  [4mmtype[24m value, or invalid
+              [4mmsgsz[24m value (less than 0 or greater than the system  value  [1mMSG‐[0m
+              [1mMAX[22m).
+
+       [1mENOMEM [22mThe  system  does  not  have enough memory to make a copy of the
+              message pointed to by [4mmsgp[24m.
+
+       When [1mmsgrcv[22m() fails, [4merrno[24m will be set to one among the following  val‐
+       ues:
+
+       [1mE2BIG  [22mThe  message  text  length is greater than [4mmsgsz[24m and [1mMSG_NOERROR[0m
+              isn't specified in [4mmsgflg[24m.
+
+       [1mEACCES [22mThe calling process does not have read permission on the message
+              queue,  and  does  not  have the [1mCAP_IPC_OWNER [22mcapability in the
+              user namespace that governs its IPC namespace.
+
+       [1mEFAULT [22mThe address pointed to by [4mmsgp[24m isn't accessible.
+
+       [1mEIDRM  [22mWhile the process was sleeping to receive a message, the message
+              queue was removed.
+
+       [1mEINTR  [22mWhile the process was sleeping to receive a message, the process
+              caught a signal; see [1msignal[22m(7).
+
+       [1mEINVAL [4m[22mmsqid[24m was invalid, or [4mmsgsz[24m was less than 0.
+
+       [1mEINVAL [22m(since Linux 3.14)
+              [4mmsgflg[24m specified [1mMSG_COPY[22m, but not [1mIPC_NOWAIT[22m.
+
+       [1mEINVAL [22m(since Linux 3.14)
+              [4mmsgflg[24m specified both [1mMSG_COPY [22mand [1mMSG_EXCEPT[22m.
+
+       [1mENOMSG IPC_NOWAIT [22mwas  specified  in  [4mmsgflg[24m  and  no  message  of  the
+              requested type existed on the message queue.
+
+       [1mENOMSG IPC_NOWAIT  [22mand  [1mMSG_COPY [22mwere specified in [4mmsgflg[24m and the queue
+              contains less than [4mmsgtyp[24m messages.
+
+       [1mENOSYS [22m(since Linux 3.8)
+              [4mMSG_COPY[24m was specified in [4mmsgflg[24m, and this kernel was configured
+              without [1mCONFIG_CHECKPOINT_RESTORE[22m.
+
+[1mCONFORMING TO[0m
+       POSIX.1-2001, POSIX.1-2008, SVr4.
+
+       The [1mMSG_EXCEPT [22mand [1mMSG_COPY [22mflags are Linux-specific; their definitions
+       can be obtained by defining the [1m_GNU_SOURCE [22mfeature test macro.
+
+[1mNOTES[0m
+       The inclusion of [4m<sys/types.h>[24m and [4m<sys/ipc.h>[24m isn't required on  Linux
+       or by any version of POSIX.  However, some old implementations required
+       the inclusion of these header files, and the SVID also documented their
+       inclusion.   Applications  intended  to be portable to such old systems
+       may need to include these header files.
+
+       The [4mmsgp[24m argument is declared as [4mstruct[24m [4mmsgbuf[24m [4m*[24m in glibc 2.0 and  2.1.
+       It  is  declared as [4mvoid[24m [4m*[24m in glibc 2.2 and later, as required by SUSv2
+       and SUSv3.
+
+       The following limits on message queue  resources  affect  the  [1mmsgsnd[22m()
+       call:
+
+       [1mMSGMAX [22mMaximum  size  of  a message text, in bytes (default value: 8192
+              bytes).  On Linux, this limit  can  be  read  and  modified  via
+              [4m/proc/sys/kernel/msgmax[24m.
+
+       [1mMSGMNB [22mMaximum  number  of  bytes  that  can be held in a message queue
+              (default value: 16384 bytes).  On Linux, this limit can be  read
+              and  modified via [4m/proc/sys/kernel/msgmnb[24m.  A privileged process
+              (Linux: a process  with  the  [1mCAP_SYS_RESOURCE  [22mcapability)  can
+              increase  the  size  of  a message queue beyond [1mMSGMNB [22musing the
+              [1mmsgctl[22m(2) [1mIPC_SET [22moperation.
+
+       The implementation has no intrinsic system-wide limits on the number of
+       message  headers  ([1mMSGTQL[22m)  and the number of bytes in the message pool
+       ([1mMSGPOOL[22m).
+
+[1mBUGS[0m
+       In Linux 3.13 and earlier, if [1mmsgrcv[22m() was  called  with  the  [1mMSG_COPY[0m
+       flag, but without [1mIPC_NOWAIT[22m, and the message queue contained less than
+       [4mmsgtyp[24m messages, then the call would block until the  next  message  is
+       written  to  the queue.  At that point, the call would return a copy of
+       the message, [4mregardless[24m of whether that  message  was  at  the  ordinal
+       position [4mmsgtyp[24m.  This bug is fixed in Linux 3.14.
+
+       Specifying  both  [1mMSG_COPY  [22mand [1mMSC_EXCEPT [22min [4mmsgflg[24m is a logical error
+       (since these flags impose different  interpretations  on  [4mmsgtyp[24m).   In
+       Linux 3.13 and earlier, this error was not diagnosed by [1mmsgrcv[22m().  This
+       bug is fixed in Linux 3.14.
+
+[1mEXAMPLE[0m
+       The program below demonstrates the use of [1mmsgsnd[22m() and [1mmsgrcv[22m().
+
+       The example program is first run with the [1m-s [22moption to send  a  message
+       and then run again with the [1m-r [22moption to receive a message.
+
+       The following shell session shows a sample run of the program:
+
+           $ [1m./a.out -s[0m
+           sent: a message at Wed Mar  4 16:25:45 2015
+
+           $ [1m./a.out -r[0m
+           message received: a message at Wed Mar  4 16:25:45 2015
+
+   [1mProgram source[0m
+
+       #include <stdio.h>
+       #include <stdlib.h>
+       #include <string.h>
+       #include <time.h>
+       #include <unistd.h>
+       #include <errno.h>
+       #include <sys/types.h>
+       #include <sys/ipc.h>
+       #include <sys/msg.h>
+
+       struct msgbuf {
+           long mtype;
+           char mtext[80];
+       };
+
+       static void
+       usage(char *prog_name, char *msg)
+       {
+           if (msg != NULL)
+               fputs(msg, stderr);
+
+           fprintf(stderr, "Usage: %s [options]\n", prog_name);
+           fprintf(stderr, "Options are:\n");
+           fprintf(stderr, "-s        send message using msgsnd()\n");
+           fprintf(stderr, "-r        read message using msgrcv()\n");
+           fprintf(stderr, "-t        message type (default is 1)\n");
+           fprintf(stderr, "-k        message queue key (default is 1234)\n");
+           exit(EXIT_FAILURE);
+       }
+
+       static void
+       send_msg(int qid, int msgtype)
+       {
+           struct msgbuf msg;
+           time_t t;
+
+           msg.mtype = msgtype;
+
+           time(&t);
+           snprintf(msg.mtext, sizeof(msg.mtext), "a message at %s",
+                   ctime(&t));
+
+           if (msgsnd(qid, (void *) &msg, sizeof(msg.mtext),
+                       IPC_NOWAIT) == -1) {
+               perror("msgsnd error");
+               exit(EXIT_FAILURE);
+           }
+           printf("sent: %s\n", msg.mtext);
+       }
+
+       static void
+       get_msg(int qid, int msgtype)
+       {
+           struct msgbuf msg;
+
+           if (msgrcv(qid, (void *) &msg, sizeof(msg.mtext), msgtype,
+                      MSG_NOERROR | IPC_NOWAIT) == -1) {
+               if (errno != ENOMSG) {
+                   perror("msgrcv");
+                   exit(EXIT_FAILURE);
+               }
+               printf("No message available for msgrcv()\n");
+           } else
+               printf("message received: %s\n", msg.mtext);
+       }
+
+       int
+       main(int argc, char *argv[])
+       {
+           int qid, opt;
+           int mode = 0;               /* 1 = send, 2 = receive */
+           int msgtype = 1;
+           int msgkey = 1234;
+
+           while ((opt = getopt(argc, argv, "srt:k:")) != -1) {
+               switch (opt) {
+               case 's':
+                   mode = 1;
+                   break;
+               case 'r':
+                   mode = 2;
+                   break;
+               case 't':
+                   msgtype = atoi(optarg);
+                   if (msgtype <= 0)
+                       usage(argv[0], "-t option must be greater than 0\n");
+                   break;
+               case 'k':
+                   msgkey = atoi(optarg);
+                   break;
+               default:
+                   usage(argv[0], "Unrecognized option\n");
+               }
+           }
+
+           if (mode == 0)
+               usage(argv[0], "must use either -s or -r option\n");
+
+           qid = msgget(msgkey, IPC_CREAT | 0666);
+
+           if (qid == -1) {
+               perror("msgget");
+               exit(EXIT_FAILURE);
+           }
+
+           if (mode == 2)
+               get_msg(qid, msgtype);
+           else
+               send_msg(qid, msgtype);
+
+           exit(EXIT_SUCCESS);
+       }
+
+[1mSEE ALSO[0m
+       [1mmsgctl[22m(2), [1mmsgget[22m(2), [1mcapabilities[22m(7), [1mmq_overview[22m(7), [1msvipc[22m(7)
+
+[1mCOLOPHON[0m
+       This  page  is  part of release 4.15 of the Linux [4mman-pages[24m project.  A
+       description of the project, information about reporting bugs,  and  the
+       latest     version     of     this    page,    can    be    found    at
+       https://www.kernel.org/doc/man-pages/.
+
+Linux                             2017-09-15                          MSGOP(2)
